@@ -1,48 +1,50 @@
 import os
-import django
-import uuid
 import sys
-
-
-
-from scrapy_crawler.scrapy_crawler.spiders.trangvang import TrangVangSpider
+import django
+from django.conf import settings 
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
-from crawler_app.models import CrawlTask, BusinessData
+from scrapy.utils.reactor import install_reactor
+print("hello from crawl_runner.py")
+print("Python executable: ", sys.executable)
 
-
-#task_id = int(sys.argv[1])
-#url_filter = sys.argv[2]
-def create_and_run_task(id, url_filter):
+# Cấu hình Django
+if not django.conf.settings.configured:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
     django.setup()
 
-    #task = CrawlTask.objects.create(url_filter=url_filter, status='pending')
-    task = CrawlTask.objects.get(id=id)
-    #print(f"Created task #{task.id}")
+from scrapy_crawler.scrapy_crawler.spiders.trangvang import TrangVangSpider
+from crawler_app.models import CrawlTask
+# Cấu hình twisted reactor để hỗ trợ asyncio
+try:
+    install_reactor('twisted.internet.asyncioreactor.AsyncioSelectorReactor')
+except Exception:
+    pass
 
+def create_and_run_task(task_id, url_filter):
+    task = CrawlTask.objects.get(id=task_id)
+    print(f"Running task #{task_id} with filter: {url_filter}")
     try:
         task.status = 'In Progress'
         task.save()
 
-        # Config scrapy settings
+        # Cấu hình và khởi chạy Scrapy crawler
         process = CrawlerProcess(get_project_settings())
-
-        # Truyền task id và url filter vào spider
         process.crawl(TrangVangSpider, task_id=task.id, url=url_filter)
-
-        # Chạy đồng bộ, không cần asyncio
-        process.start()
+        process.start()  # Blocking call, chờ đến khi crawl xong
 
         task.refresh_from_db()
         if task.status != 'Failed':
             task.status = 'Done'
             task.save()
-            print(f"✅ Task #{task.id} done.")
-
+            print(f"Task #{task.id} done.")
     except Exception as e:
-        print(f"❌ Crawl failed: {e}")
-        task.status = 'failed'
+        print(f"Crawl failed: {e}")
+        task.status = 'Failed'
         task.save()
-
-
+        
+        
+if __name__ == "__main__":
+    task_id = sys.argv[1]  # Lấy task_id từ tham số dòng lệnh
+    url_filter = sys.argv[2]  # Lấy url_filter từ tham số dòng lệnh
+    create_and_run_task(task_id, url_filter)

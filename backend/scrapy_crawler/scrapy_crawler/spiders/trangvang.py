@@ -1,5 +1,6 @@
 import scrapy
 from crawler_app.models import BusinessData, CrawlTask
+from asgiref.sync import sync_to_async
 
 class TrangVangSpider(scrapy.Spider):
     name = "trangvang"
@@ -12,7 +13,8 @@ class TrangVangSpider(scrapy.Spider):
         self.task_id = task_id
         
         
-    def parse(self, response):
+    async def parse(self, response):
+        self.logger.info(f"Parsing detail page: {response.url}")
         for company in response.css("div.shadow.rounded-3.bg-white"):
             name = company.css("h2 a::text").get()
             detail_url = company.css("h2 a::attr(href)").get()
@@ -36,8 +38,9 @@ class TrangVangSpider(scrapy.Spider):
                 "detail_url": response.urljoin(detail_url),
             })
 
-    def parse_detail(self, response):
+    async def parse_detail(self, response):
         # Nếu thông tin bị thiếu ở trang list, ta cố gắng lấy lại ở trang detail
+        self.logger.info(f"Parsing detail page: {response.url}")
         def get_if_none(key, value_from_detail):
             return response.meta[key] or value_from_detail
 
@@ -55,7 +58,8 @@ class TrangVangSpider(scrapy.Spider):
         }
 
         try:
-            task = CrawlTask.objects.get(id=self.task_id)
-            BusinessData.objects.create(task=task, **data)
+            task = await sync_to_async(CrawlTask.objects.get)(id=self.task_id)
+            await sync_to_async(BusinessData.objects.create)(task=task, **data)
+            self.logger.info(f"Saved data for: {data['name']}")
         except Exception as e:
             self.logger.error(f"❌ Failed to save data: {e}")
